@@ -2,7 +2,7 @@
 
 ## Quick Start
 
-After hosting the script in your own GitHub repository, run the following command as root on your VPS to pull the script and open the management menu:
+Run the following command as root on your VPS to pull the script and open the management menu:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/coffeelb/One-click-sing-box-installer-for-VLESS-Hysteria2-on-VPS/main/sing-box.sh)
