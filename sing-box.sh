@@ -22,6 +22,7 @@ UUID="${UUID:-}"
 SNI="${SNI:-www.apple.com}"
 NAME="${NAME:-VLESS-REALITY}"
 ENABLE_HY2="${ENABLE_HY2:-1}"
+ENABLE_VLESS="${ENABLE_VLESS:-1}"
 HY2_PORT="${HY2_PORT:-}"
 HY2_PASSWORD="${HY2_PASSWORD:-}"
 HY2_DOMAIN="${HY2_DOMAIN:-}"
@@ -82,6 +83,8 @@ sing-box 一键管理脚本 (VLESS + Reality + Vision / Hysteria2)
   bash <(curl -fsSL ...) change-port | change-sni
   bash <(curl -fsSL ...) bbr
       开启 BBR TCP 加速
+  bash <(curl -fsSL ...) hy2
+      单独安装 / 添加 Hysteria2 (HY2)
 
 安装参数:
   -port <端口>          VLESS 监听端口 (默认 443)
@@ -104,6 +107,7 @@ while [[ $# -gt 0 ]]; do
     autostart)         MODE="autostart"; AUTOSTART_ACTION="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
     update)            MODE="update"; shift ;;
     bbr)               MODE="bbr"; shift ;;
+    hy2)               MODE="hy2"; shift ;;
     change-port)       MODE="change-port"; shift ;;
     change-sni)        MODE="change-sni"; shift ;;
     uninstall|-uninstall) MODE="uninstall"; shift ;;
@@ -222,6 +226,7 @@ PRIVATE_KEY=${PRIVATE_KEY}
 PUBLIC_KEY=${PUBLIC_KEY}
 SHORT_ID=${SHORT_ID}
 ENABLE_HY2=${ENABLE_HY2}
+ENABLE_VLESS=${ENABLE_VLESS}
 HY2_PORT=${HY2_PORT}
 HY2_PASSWORD=${HY2_PASSWORD}
 HY2_DOMAIN=${HY2_DOMAIN}
@@ -241,6 +246,7 @@ load_info() {
   PUBLIC_KEY="${PUBLIC_KEY:-}"
   SHORT_ID="${SHORT_ID:-}"
   ENABLE_HY2="${ENABLE_HY2:-1}"
+  ENABLE_VLESS="${ENABLE_VLESS:-1}"
   HY2_PORT="${HY2_PORT:-$PORT}"
   HY2_PASSWORD="${HY2_PASSWORD:-}"
   HY2_DOMAIN="${HY2_DOMAIN:-}"
@@ -253,15 +259,30 @@ write_config() {
     cp "$CONFIG_FILE" "${CONFIG_FILE}.bak.$(date +%s)"
     log "旧配置已备份到 ${CONFIG_DIR}/"
   fi
-  local hy2_inbound="" hy2_tls=""
-  if [[ "$ENABLE_HY2" -eq 1 ]]; then
-    hy2_tls="\"tls\": {
+  local vless_inbound="" hy2_inbound="" inbounds=""
+  if [[ "$ENABLE_VLESS" -eq 1 ]]; then
+    vless_inbound="    {
+      \"type\": \"vless\",
+      \"tag\": \"vless-in\",
+      \"listen\": \"::\",
+      \"listen_port\": ${PORT},
+      \"users\": [
+        { \"uuid\": \"${UUID}\", \"flow\": \"xtls-rprx-vision\" }
+      ],
+      \"tls\": {
         \"enabled\": true,
-        \"certificate_path\": \"${HY2_CERT}\",
-        \"key_path\": \"${HY2_KEY}\"
-      }"
-    hy2_inbound=",
-    {
+        \"server_name\": \"${SNI}\",
+        \"reality\": {
+          \"enabled\": true,
+          \"handshake\": { \"server\": \"${SNI}\", \"server_port\": 443 },
+          \"private_key\": \"${PRIVATE_KEY}\",
+          \"short_id\": [\"${SHORT_ID}\"]
+        }
+      }
+    }"
+  fi
+  if [[ "$ENABLE_HY2" -eq 1 ]]; then
+    hy2_inbound="    {
       \"type\": \"hysteria2\",
       \"tag\": \"hy2-in\",
       \"listen\": \"::\",
@@ -269,8 +290,18 @@ write_config() {
       \"users\": [
         { \"password\": \"${HY2_PASSWORD}\" }
       ],
-      ${hy2_tls}
+      \"tls\": {
+        \"enabled\": true,
+        \"certificate_path\": \"${HY2_CERT}\",
+        \"key_path\": \"${HY2_KEY}\"
+      }
     }"
+  fi
+  if [[ -n "$vless_inbound" && -n "$hy2_inbound" ]]; then
+    inbounds="${vless_inbound},
+${hy2_inbound}"
+  else
+    inbounds="${vless_inbound}${hy2_inbound}"
   fi
   cat > "$CONFIG_FILE" <<EOF
 {
@@ -282,25 +313,7 @@ write_config() {
     "interval": "30m"
   },
   "inbounds": [
-    {
-      "type": "vless",
-      "tag": "vless-in",
-      "listen": "::",
-      "listen_port": ${PORT},
-      "users": [
-        { "uuid": "${UUID}", "flow": "xtls-rprx-vision" }
-      ],
-      "tls": {
-        "enabled": true,
-        "server_name": "${SNI}",
-        "reality": {
-          "enabled": true,
-          "handshake": { "server": "${SNI}", "server_port": 443 },
-          "private_key": "${PRIVATE_KEY}",
-          "short_id": ["${SHORT_ID}"]
-        }
-      }
-    }${hy2_inbound}
+${inbounds}
   ],
   "outbounds": [
     { "type": "direct", "tag": "direct" }
@@ -365,8 +378,10 @@ show_info() {
   echo "  节点信息 (保存于 ${INFO_FILE})"
   echo "================================================================"
   echo "  服务器:   ${SERVER_IP}"
-  echo "  VLESS:    ${PORT} / UUID ${UUID}"
-  echo "  SNI:      ${SNI} / 公钥 ${PUBLIC_KEY} / ShortId ${SHORT_ID}"
+  if [[ "$ENABLE_VLESS" -eq 1 ]]; then
+    echo "  VLESS:    ${PORT} / UUID ${UUID}"
+    echo "  SNI:      ${SNI} / 公钥 ${PUBLIC_KEY} / ShortId ${SHORT_ID}"
+  fi
   if [[ "$ENABLE_HY2" -eq 1 ]]; then
     if [[ -n "$HY2_DOMAIN" ]]; then
       echo "  HY2:      带域名 ${HY2_DOMAIN} / ${HY2_PORT} (UDP)"
@@ -376,8 +391,10 @@ show_info() {
     echo "  HY2 密码: ${HY2_PASSWORD}"
   fi
   echo "--------------------------------------------------------------"
-  echo "  VLESS 分享链接 (复制下面整行):"
-  echo "  vless://${UUID}@$(addr_disp "$SERVER_IP"):${PORT}?type=tcp&encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&spx=%2F#$(urlencode "$NAME")"
+  if [[ "$ENABLE_VLESS" -eq 1 ]]; then
+    echo "  VLESS 分享链接 (复制下面整行):"
+    echo "  vless://${UUID}@$(addr_disp "$SERVER_IP"):${PORT}?type=tcp&encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&spx=%2F#$(urlencode "$NAME")"
+  fi
   if [[ "$ENABLE_HY2" -eq 1 ]]; then
     local hy2_server="$(addr_disp "$SERVER_IP")" hy2_suffix="?sni=${SNI}&insecure=1"
     [[ -n "$HY2_DOMAIN" ]] && { hy2_server="$HY2_DOMAIN"; hy2_suffix="?sni=${HY2_DOMAIN}&insecure=1"; }
@@ -398,17 +415,19 @@ check_ports() {
     return 1
   fi
   if [[ "$tool" == "ss" ]]; then
-    tcp_ok="$(ss -tln 2>/dev/null | grep -c ":$PORT " || true)"
+    [[ "$ENABLE_VLESS" -eq 1 ]] && tcp_ok="$(ss -tln 2>/dev/null | grep -c ":$PORT " || true)"
     [[ "$ENABLE_HY2" -eq 1 ]] && udp_ok="$(ss -uln 2>/dev/null | grep -c ":$HY2_PORT " || true)"
   else
-    tcp_ok="$(netstat -tln 2>/dev/null | grep -c ":$PORT " || true)"
+    [[ "$ENABLE_VLESS" -eq 1 ]] && tcp_ok="$(netstat -tln 2>/dev/null | grep -c ":$PORT " || true)"
     [[ "$ENABLE_HY2" -eq 1 ]] && udp_ok="$(netstat -uln 2>/dev/null | grep -c ":$HY2_PORT " || true)"
   fi
-  if (( tcp_ok > 0 )); then
-    log "VLESS TCP ${PORT}: 监听正常"
-  else
-    log "警告: VLESS TCP ${PORT} 未监听，请查看日志: journalctl -u sing-box -n 50 --no-pager"
-    ok=0
+  if [[ "$ENABLE_VLESS" -eq 1 ]]; then
+    if (( tcp_ok > 0 )); then
+      log "VLESS TCP ${PORT}: 监听正常"
+    else
+      log "警告: VLESS TCP ${PORT} 未监听，请查看日志: journalctl -u sing-box -n 50 --no-pager"
+      ok=0
+    fi
   fi
   if [[ "$ENABLE_HY2" -eq 1 ]]; then
     if (( udp_ok > 0 )); then
@@ -548,20 +567,26 @@ change_port() {
   need_singbox
   load_info
   local new_port new_hy2 sync
-  new_port="$(ask "请输入新的 VLESS 端口" "$PORT")"
-  [[ "$new_port" =~ ^[0-9]+$ ]] && (( new_port >= 1 && new_port <= 65535 )) || fail "端口无效: $new_port"
-  PORT="$new_port"
-  if [[ "$ENABLE_HY2" -eq 1 ]]; then
-    if [[ -t 0 ]]; then
-      read -r -p "是否同步修改 HY2 端口? [y/N] " sync
-      if [[ "$sync" =~ ^[yY]$ ]]; then
-        new_hy2="$(ask "请输入新的 HY2 端口" "$HY2_PORT")"
-        [[ "$new_hy2" =~ ^[0-9]+$ ]] && (( new_hy2 >= 1 && new_hy2 <= 65535 )) || fail "HY2 端口无效: $new_hy2"
-        HY2_PORT="$new_hy2"
+  if [[ "$ENABLE_VLESS" -eq 1 ]]; then
+    new_port="$(ask "请输入新的 VLESS 端口" "$PORT")"
+    [[ "$new_port" =~ ^[0-9]+$ ]] && (( new_port >= 1 && new_port <= 65535 )) || fail "端口无效: $new_port"
+    PORT="$new_port"
+    if [[ "$ENABLE_HY2" -eq 1 ]]; then
+      if [[ -t 0 ]]; then
+        read -r -p "是否同步修改 HY2 端口? [y/N] " sync
+        if [[ "$sync" =~ ^[yY]$ ]]; then
+          new_hy2="$(ask "请输入新的 HY2 端口" "$HY2_PORT")"
+          [[ "$new_hy2" =~ ^[0-9]+$ ]] && (( new_hy2 >= 1 && new_hy2 <= 65535 )) || fail "HY2 端口无效: $new_hy2"
+          HY2_PORT="$new_hy2"
+        fi
+      else
+        HY2_PORT="$PORT"
       fi
-    else
-      HY2_PORT="$PORT"
     fi
+  else
+    new_hy2="$(ask "请输入新的 HY2 端口" "$HY2_PORT")"
+    [[ "$new_hy2" =~ ^[0-9]+$ ]] && (( new_hy2 >= 1 && new_hy2 <= 65535 )) || fail "HY2 端口无效: $new_hy2"
+    HY2_PORT="$new_hy2"
   fi
   write_config
   restart_service
@@ -598,6 +623,7 @@ uninstall() {
 
 install_node() {
   need_root
+  ENABLE_VLESS=1
   command -v curl >/dev/null 2>&1 || fail "缺少 curl，请先安装: apt install -y curl"
   command -v tar  >/dev/null 2>&1 || fail "缺少 tar，请先安装: apt install -y tar"
   command -v openssl >/dev/null 2>&1 || fail "缺少 openssl，请先安装: apt install -y openssl"
@@ -661,6 +687,50 @@ install_node() {
   fi
 }
 
+install_hy2() {
+  need_root
+  command -v curl >/dev/null 2>&1 || fail "缺少 curl，请先安装: apt install -y curl"
+  command -v tar  >/dev/null 2>&1 || fail "缺少 tar，请先安装: apt install -y tar"
+  command -v openssl >/dev/null 2>&1 || fail "缺少 openssl，请先安装: apt install -y openssl"
+
+  local old_domain=""
+  if [[ -f "$INFO_FILE" ]]; then
+    load_info
+    old_domain="$HY2_DOMAIN"
+    if [[ "$ENABLE_VLESS" -eq 1 && "$MODE" == "menu" && -t 0 ]]; then
+      read -r -p "检测到已有 VLESS 节点，将保留其配置并单独添加/更新 HY2，继续? [y/N] " ans
+      [[ "$ans" =~ ^[yY]$ ]] || { echo "已取消。"; return 0; }
+    fi
+    log "添加 / 更新 Hysteria2（VLESS 配置保持不变）..."
+  else
+    ENABLE_VLESS=0
+    log "全新安装: 仅 Hysteria2（不含 VLESS）..."
+  fi
+
+  ENABLE_HY2=1
+  HY2_PORT="$(ask "HY2 UDP 端口" "${HY2_PORT:-443}")"
+  [[ "$HY2_PORT" =~ ^[0-9]+$ ]] && (( HY2_PORT >= 1 && HY2_PORT <= 65535 )) || fail "HY2 端口无效: $HY2_PORT"
+  if [[ "$MODE" == "menu" && -t 0 ]]; then
+    read -r -p "HY2 带域名模式? 输入域名，留空使用 IP 模式: " dom
+    [[ -n "$dom" ]] && HY2_DOMAIN="$dom"
+    [[ -n "$HY2_DOMAIN" ]] && [[ "$HY2_DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$ ]] || fail "域名格式无效: $HY2_DOMAIN"
+  fi
+  if [[ "$HY2_DOMAIN" != "$old_domain" ]]; then
+    rm -f "$HY2_CERT" "$HY2_KEY"
+  fi
+
+  install_singbox
+  enable_bbr || true
+  gen_hy2_password
+  gen_hy2_cert
+  write_config
+  setup_service
+  open_firewall_ports
+  check_ports || true
+  echo ""
+  show_info
+}
+
 menu() {
   while true; do
     echo ""
@@ -675,9 +745,10 @@ menu() {
     echo "  8. 查看状态与日志"
     echo "  9. 卸载 sing-box"
     echo "  10. 开启 BBR TCP 加速"
+    echo "  11. 单独安装 Hysteria2 (HY2)"
     echo "  0. 退出"
     echo "====================================================="
-    read -r -p "请输入选项 [0-10]: " choice || break
+    read -r -p "请输入选项 [0-11]: " choice || break
     case "$choice" in
       1) install_node ;;
       2) show_info ;;
@@ -689,6 +760,7 @@ menu() {
       8) show_status ;;
       9) uninstall ;;
       10) enable_bbr ;;
+      11) install_hy2 ;;
       0) echo "再见。"; break ;;
       *) echo "无效选项: $choice" ;;
     esac
@@ -703,6 +775,7 @@ case "$MODE" in
   autostart)    autostart_toggle "$AUTOSTART_ACTION" ;;
   update)       update_singbox ;;
   bbr)          enable_bbr ;;
+  hy2)          install_hy2 ;;
   change-port)  change_port ;;
   change-sni)   change_sni ;;
   uninstall)    uninstall ;;
