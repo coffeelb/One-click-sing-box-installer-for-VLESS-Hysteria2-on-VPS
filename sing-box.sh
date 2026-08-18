@@ -198,6 +198,14 @@ gen_uuid()       { [[ -n "$UUID" ]] || UUID="$(sing-box generate uuid)"; }
 gen_short_id()   { SHORT_ID="$(openssl rand -hex 4 2>/dev/null || od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"; }
 gen_hy2_password() { [[ -n "$HY2_PASSWORD" ]] || HY2_PASSWORD="$(openssl rand -hex 12)"; }
 
+ask_hy2_password() {
+  local pw=""
+  if [[ "$MODE" == "menu" && -t 0 ]]; then
+    read -r -p "HY2 密码 (留空自动生成): " pw
+    [[ -n "$pw" ]] && HY2_PASSWORD="$pw"
+  fi
+}
+
 gen_hy2_cert() {
   if [[ ! -f "$HY2_CERT" || ! -f "$HY2_KEY" ]]; then
     log "生成 Hysteria2 自签名证书 (CN=${HY2_DOMAIN:-$SNI})..."
@@ -649,6 +657,7 @@ install_node() {
   if [[ "$ENABLE_HY2" -eq 1 ]]; then
     HY2_PORT="$(ask "HY2 UDP 端口 (可与 VLESS 相同)" "$HY2_PORT")"
     [[ "$HY2_PORT" =~ ^[0-9]+$ ]] && (( HY2_PORT >= 1 && HY2_PORT <= 65535 )) || fail "HY2 端口无效: $HY2_PORT"
+    ask_hy2_password
     if [[ "$MODE" == "menu" && -t 0 ]]; then
       read -r -p "HY2 带域名模式? 输入域名，留空使用 IP 模式: " dom
       [[ -n "$dom" ]] && HY2_DOMAIN="$dom"
@@ -710,6 +719,7 @@ install_hy2() {
   ENABLE_HY2=1
   HY2_PORT="$(ask "HY2 UDP 端口" "${HY2_PORT:-443}")"
   [[ "$HY2_PORT" =~ ^[0-9]+$ ]] && (( HY2_PORT >= 1 && HY2_PORT <= 65535 )) || fail "HY2 端口无效: $HY2_PORT"
+  ask_hy2_password
   if [[ "$MODE" == "menu" && -t 0 ]]; then
     read -r -p "HY2 带域名模式? 输入域名，留空使用 IP 模式: " dom
     [[ -n "$dom" ]] && HY2_DOMAIN="$dom"
