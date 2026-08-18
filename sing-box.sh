@@ -730,7 +730,6 @@ install_hy2() {
   fi
 
   install_singbox
-  enable_bbr || true
   gen_hy2_password
   gen_hy2_cert
   write_config
