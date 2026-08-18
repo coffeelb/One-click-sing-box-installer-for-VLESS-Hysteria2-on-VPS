@@ -170,9 +170,10 @@ gen_hy2_password() { [[ -n "$HY2_PASSWORD" ]] || HY2_PASSWORD="$(openssl rand -h
 gen_hy2_cert() {
   if [[ ! -f "$HY2_CERT" || ! -f "$HY2_KEY" ]]; then
     log "生成 Hysteria2 自签名证书 (CN=${HY2_DOMAIN:-$SNI})..."
+    mkdir -p "$CONFIG_DIR"
     openssl req -x509 -newkey rsa:2048 -nodes \
       -keyout "$HY2_KEY" -out "$HY2_CERT" -days 3650 \
-      -subj "/CN=${HY2_DOMAIN:-$SNI}" >/dev/null 2>&1
+      -subj "/CN=${HY2_DOMAIN:-$SNI}" || fail "生成证书失败，请检查 openssl 与 ${CONFIG_DIR} 目录权限"
   fi
 }
 
