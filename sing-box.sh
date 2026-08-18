@@ -736,31 +736,31 @@ menu() {
     echo ""
     echo "================= sing-box 管理菜单 ================="
     echo "  1. 安装 / 重装节点 (VLESS+Reality+Vision / Hysteria2)"
-    echo "  2. 查看节点信息与分享链接"
-    echo "  3. 重启服务"
-    echo "  4. 开机自启设置"
-    echo "  5. 更新 sing-box 内核"
-    echo "  6. 更换端口"
-    echo "  7. 更换 SNI"
-    echo "  8. 查看状态与日志"
-    echo "  9. 卸载 sing-box"
-    echo "  10. 开启 BBR TCP 加速"
-    echo "  11. 单独安装 Hysteria2 (HY2)"
+    echo "  2. 单独安装 Hysteria2 (HY2)"
+    echo "  3. 查看节点信息与分享链接"
+    echo "  4. 重启服务"
+    echo "  5. 开机自启设置"
+    echo "  6. 更新 sing-box 内核"
+    echo "  7. 更换端口"
+    echo "  8. 更换 SNI"
+    echo "  9. 查看状态与日志"
+    echo "  10. 卸载 sing-box"
+    echo "  11. 开启 BBR TCP 加速"
     echo "  0. 退出"
     echo "====================================================="
     read -r -p "请输入选项 [0-11]: " choice || break
     case "$choice" in
       1) install_node ;;
-      2) show_info ;;
-      3) restart_service ;;
-      4) autostart_toggle ;;
-      5) update_singbox ;;
-      6) change_port ;;
-      7) change_sni ;;
-      8) show_status ;;
-      9) uninstall ;;
-      10) enable_bbr ;;
-      11) install_hy2 ;;
+      2) install_hy2 ;;
+      3) show_info ;;
+      4) restart_service ;;
+      5) autostart_toggle ;;
+      6) update_singbox ;;
+      7) change_port ;;
+      8) change_sni ;;
+      9) show_status ;;
+      10) uninstall ;;
+      11) enable_bbr ;;
       0) echo "再见。"; break ;;
       *) echo "无效选项: $choice" ;;
     esac
