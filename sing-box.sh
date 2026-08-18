@@ -80,6 +80,8 @@ sing-box 一键管理脚本 (VLESS + Reality + Vision / Hysteria2)
   bash <(curl -fsSL ...) info | restart | status | update | uninstall
   bash <(curl -fsSL ...) autostart on|off|status
   bash <(curl -fsSL ...) change-port | change-sni
+  bash <(curl -fsSL ...) bbr
+      开启 BBR TCP 加速
 
 安装参数:
   -port <端口>          VLESS 监听端口 (默认 443)
@@ -101,6 +103,7 @@ while [[ $# -gt 0 ]]; do
     status)            MODE="status"; shift ;;
     autostart)         MODE="autostart"; AUTOSTART_ACTION="${2:-}"; shift $(( $# > 1 ? 2 : 1 )) ;;
     update)            MODE="update"; shift ;;
+    bbr)               MODE="bbr"; shift ;;
     change-port)       MODE="change-port"; shift ;;
     change-sni)        MODE="change-sni"; shift ;;
     uninstall|-uninstall) MODE="uninstall"; shift ;;
@@ -458,6 +461,25 @@ open_firewall_ports() {
   log "${tool} 已放行: ${tcp}${udp:+ / ${udp}}"
 }
 
+enable_bbr() {
+  local cur=""
+  cur="$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)"
+  if [[ "$cur" == "bbr" ]]; then
+    log "BBR 已开启 (tcp_congestion_control=bbr)"
+    return 0
+  fi
+  log "开启 BBR TCP 加速..."
+  modprobe tcp_bbr 2>/dev/null || true
+  if ! sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1; then
+    log "警告: 当前内核不支持 BBR，已跳过（不影响节点运行）"
+    return 1
+  fi
+  grep -q '^net.core.default_qdisc=fq' /etc/sysctl.conf 2>/dev/null || echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
+  grep -q '^net.ipv4.tcp_congestion_control=bbr' /etc/sysctl.conf 2>/dev/null || echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
+  sysctl -p >/dev/null 2>&1 || true
+  log "BBR 已开启（已写入 /etc/sysctl.conf，重启后保持）"
+}
+
 show_status() {
   need_singbox
   load_info
@@ -476,6 +498,11 @@ show_status() {
   check_ports || true
   check_sni_reachable || true
   log "当前服务器时间: $(date '+%F %T %Z')（Reality 要求客户端与服务端时间误差在 2 分钟内）"
+  if [[ "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)" == "bbr" ]]; then
+    log "TCP 加速: BBR 已开启"
+  else
+    log "TCP 加速: 未开启（菜单 10 可开启 BBR）"
+  fi
 }
 
 autostart_toggle() {
@@ -604,6 +631,7 @@ install_node() {
   fi
 
   install_singbox
+  enable_bbr || true
   gen_uuid
   gen_reality_keys
   gen_short_id
@@ -646,9 +674,10 @@ menu() {
     echo "  7. 更换 SNI"
     echo "  8. 查看状态与日志"
     echo "  9. 卸载 sing-box"
+    echo "  10. 开启 BBR TCP 加速"
     echo "  0. 退出"
     echo "====================================================="
-    read -r -p "请输入选项 [0-9]: " choice || break
+    read -r -p "请输入选项 [0-10]: " choice || break
     case "$choice" in
       1) install_node ;;
       2) show_info ;;
@@ -659,6 +688,7 @@ menu() {
       7) change_sni ;;
       8) show_status ;;
       9) uninstall ;;
+      10) enable_bbr ;;
       0) echo "再见。"; break ;;
       *) echo "无效选项: $choice" ;;
     esac
@@ -672,6 +702,7 @@ case "$MODE" in
   status)       show_status ;;
   autostart)    autostart_toggle "$AUTOSTART_ACTION" ;;
   update)       update_singbox ;;
+  bbr)          enable_bbr ;;
   change-port)  change_port ;;
   change-sni)   change_sni ;;
   uninstall)    uninstall ;;
