@@ -19,7 +19,7 @@ HY2_KEY="${CONFIG_DIR}/hy2-key.pem"
 
 PORT="${PORT:-443}"
 UUID="${UUID:-}"
-SNI="${SNI:-www.microsoft.com}"
+SNI="${SNI:-www.apple.com}"
 NAME="${NAME:-VLESS-REALITY}"
 ENABLE_HY2="${ENABLE_HY2:-1}"
 HY2_PORT="${HY2_PORT:-}"
@@ -83,7 +83,7 @@ sing-box 一键管理脚本 (VLESS + Reality + Vision / Hysteria2)
 
 安装参数:
   -port <端口>          VLESS 监听端口 (默认 443)
-  -sni <域名>           Reality 伪装域名 (默认 www.microsoft.com)
+  -sni <域名>           Reality 伪装域名 (默认 www.apple.com)
   -uuid <UUID>          指定 VLESS UUID (默认随机生成)
   -hy2-port <端口>      HY2 UDP 端口 (默认与 VLESS 相同)
   -hy2-domain <域名>    HY2 带域名模式 (免证书)
@@ -232,7 +232,7 @@ load_info() {
   . "$INFO_FILE"
   PORT="${PORT:-443}"
   UUID="${UUID:-}"
-  SNI="${SNI:-www.microsoft.com}"
+  SNI="${SNI:-www.apple.com}"
   NAME="${NAME:-VLESS-REALITY}"
   PRIVATE_KEY="${PRIVATE_KEY:-}"
   PUBLIC_KEY="${PUBLIC_KEY:-}"
