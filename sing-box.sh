@@ -327,7 +327,8 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable --now sing-box
+  systemctl enable sing-box
+  systemctl restart sing-box
   sleep 1
   systemctl is-active --quiet sing-box || fail "服务启动失败，请执行: journalctl -u sing-box -n 50 --no-pager"
 }
