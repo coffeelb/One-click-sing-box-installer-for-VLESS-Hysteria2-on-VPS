@@ -1,4 +1,4 @@
-# sing-box VLESS + Reality + XTLS-Vision One-Click Deployment
+# sing-box VLESS + Hysteria2 One-Click Deployment
 
 ## Quick Start
 
