@@ -80,7 +80,7 @@ sing-box 一键管理脚本 (VLESS + Reality + Vision / Hysteria2)
       直接安装（可带参数，不进入菜单）
   bash <(curl -fsSL ...) info | restart | status | update | uninstall
   bash <(curl -fsSL ...) autostart on|off|status
-  bash <(curl -fsSL ...) change-port | change-sni
+  bash <(curl -fsSL ...) change-port | change-sni | change-pass
   bash <(curl -fsSL ...) bbr
       开启 BBR TCP 加速
   bash <(curl -fsSL ...) hy2
@@ -110,6 +110,7 @@ while [[ $# -gt 0 ]]; do
     hy2)               MODE="hy2"; shift ;;
     change-port)       MODE="change-port"; shift ;;
     change-sni)        MODE="change-sni"; shift ;;
+    change-pass)       MODE="change-pass"; shift ;;
     uninstall|-uninstall) MODE="uninstall"; shift ;;
     -port|-p)          PORT="$2"; shift 2 ;;
     -uuid|-u)          UUID="$2"; shift 2 ;;
@@ -614,6 +615,45 @@ change_sni() {
   show_info
 }
 
+change_pass() {
+  need_root
+  need_singbox
+  load_info
+  local new_uuid="" new_pw="" ans=""
+  echo -e "\n修改后旧客户端链接将立即失效，需要重新导入新链接。"
+  if [[ "$MODE" == "menu" && -t 0 ]]; then
+    read -r -p "确认继续? [y/N] " ans
+    [[ "$ans" =~ ^[yY]$ ]] || { echo "已取消。"; return 0; }
+  fi
+  if [[ "$ENABLE_VLESS" -eq 1 ]]; then
+    if [[ "$MODE" == "menu" && -t 0 ]]; then
+      read -r -p "新的 VLESS UUID (留空自动生成): " new_uuid
+    fi
+    if [[ -n "$new_uuid" ]]; then
+      [[ "$new_uuid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || fail "UUID 格式无效: $new_uuid"
+      UUID="$new_uuid"
+    else
+      UUID="$(sing-box generate uuid)"
+      log "VLESS UUID 已生成: ${UUID}"
+    fi
+  fi
+  if [[ "$ENABLE_HY2" -eq 1 ]]; then
+    if [[ "$MODE" == "menu" && -t 0 ]]; then
+      read -r -p "新的 HY2 密码 (留空自动生成): " new_pw
+    fi
+    if [[ -n "$new_pw" ]]; then
+      HY2_PASSWORD="$new_pw"
+    else
+      HY2_PASSWORD="$(openssl rand -hex 12)"
+      log "HY2 密码已生成: ${HY2_PASSWORD}"
+    fi
+  fi
+  write_config
+  restart_service
+  log "UUID / HY2 密码已更新，新分享链接:"
+  show_info
+}
+
 uninstall() {
   need_root
   echo -e "\n即将执行卸载，将删除:"
@@ -752,12 +792,13 @@ menu() {
     echo "  6. 更新 sing-box 内核"
     echo "  7. 更换端口"
     echo "  8. 更换 SNI"
-    echo "  9. 查看状态与日志"
-    echo "  10. 卸载 sing-box"
-    echo "  11. 开启 BBR TCP 加速"
+    echo "  9. 更换密码 (VLESS UUID / HY2)"
+    echo "  10. 查看状态与日志"
+    echo "  11. 卸载 sing-box"
+    echo "  12. 开启 BBR TCP 加速"
     echo "  0. 退出"
     echo "====================================================="
-    read -r -p "请输入选项 [0-11]: " choice || break
+    read -r -p "请输入选项 [0-12]: " choice || break
     case "$choice" in
       1) install_node ;;
       2) install_hy2 ;;
@@ -767,9 +808,10 @@ menu() {
       6) update_singbox ;;
       7) change_port ;;
       8) change_sni ;;
-      9) show_status ;;
-      10) uninstall ;;
-      11) enable_bbr ;;
+      9) change_pass ;;
+      10) show_status ;;
+      11) uninstall ;;
+      12) enable_bbr ;;
       0) echo "再见。"; break ;;
       *) echo "无效选项: $choice" ;;
     esac
@@ -787,6 +829,7 @@ case "$MODE" in
   hy2)          install_hy2 ;;
   change-port)  change_port ;;
   change-sni)   change_sni ;;
+  change-pass)  change_pass ;;
   uninstall)    uninstall ;;
   menu)         menu ;;
 esac
