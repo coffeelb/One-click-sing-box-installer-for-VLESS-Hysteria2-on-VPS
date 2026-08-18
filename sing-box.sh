@@ -29,6 +29,7 @@ SERVER_IP=""
 
 MODE="menu"
 AUTOSTART_ACTION=""
+OPEN_FIREWALL=0
 
 log()          { echo -e "[*] $*"; }
 fail()         { echo -e "[!] $*" >&2; exit 1; }
@@ -42,6 +43,27 @@ ask() {
     echo "${ans:-$2}"
   else
     echo "$2"
+  fi
+}
+
+urlencode() {
+  local LC_ALL=C s="$1" out="" c hex i
+  for ((i = 0; i < ${#s}; i++)); do
+    c="${s:i:1}"
+    case "$c" in
+      [a-zA-Z0-9_.~-]) out+="$c" ;;
+      *) printf -v hex '%%%02X' "'$c"; out+="$hex" ;;
+    esac
+  done
+  echo "$out"
+}
+
+addr_disp() {
+  local a="$1"
+  if [[ -n "$a" && "$a" =~ : && "$a" != "["* ]]; then
+    echo "[$a]"
+  else
+    echo "$a"
   fi
 }
 
@@ -67,6 +89,7 @@ sing-box 一键管理脚本 (VLESS + Reality + Vision / Hysteria2)
   -hy2-domain <域名>    HY2 带域名模式 (免证书)
   -hy2-password <密码>  指定 HY2 密码 (默认随机生成)
   -no-hy2               不安装 Hysteria2
+  -open-firewall        非交互安装时自动放行防火墙端口 (ufw/firewalld)
 EOF
 }
 
@@ -89,6 +112,7 @@ while [[ $# -gt 0 ]]; do
     -hy2-password)     HY2_PASSWORD="$2"; shift 2 ;;
     -hy2-domain)       HY2_DOMAIN="$2"; shift 2 ;;
     -no-hy2)           ENABLE_HY2=0; shift ;;
+    -open-firewall)    OPEN_FIREWALL=1; shift ;;
     -h|--help|-help)   usage; exit 0 ;;
     *) echo "未知参数: $1"; usage; exit 1 ;;
   esac
@@ -322,8 +346,8 @@ restart_service() {
 
 get_public_ip() {
   local ip=""
-  ip="$(curl -fsSL --max-time 10 https://api.ipify.org 2>/dev/null || true)"
-  [[ -z "$ip" ]] && ip="$(curl -fsSL --max-time 10 https://ipinfo.io/ip 2>/dev/null || true)"
+  ip="$(curl -4 -fsSL --max-time 10 https://api.ipify.org 2>/dev/null || true)"
+  [[ -z "$ip" ]] && ip="$(curl -4 -fsSL --max-time 10 https://ipinfo.io/ip 2>/dev/null || true)"
   [[ -z "$ip" ]] && ip="$(curl -fsSL --max-time 10 https://api6.ipify.org 2>/dev/null || true)"
   echo "$ip"
 }
@@ -348,17 +372,94 @@ show_info() {
     echo "  HY2 密码: ${HY2_PASSWORD}"
   fi
   echo "--------------------------------------------------------------"
-  echo "  VLESS: vless://${UUID}@${SERVER_IP}:${PORT}?encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}#${NAME}"
+  echo "  VLESS 分享链接 (复制下面整行):"
+  echo "  vless://${UUID}@$(addr_disp "$SERVER_IP"):${PORT}?type=tcp&encryption=none&flow=xtls-rprx-vision&security=reality&sni=${SNI}&fp=chrome&pbk=${PUBLIC_KEY}&sid=${SHORT_ID}&spx=%2F#$(urlencode "$NAME")"
   if [[ "$ENABLE_HY2" -eq 1 ]]; then
-    local hy2_server="$SERVER_IP" hy2_suffix="?sni=${SNI}&insecure=1"
+    local hy2_server="$(addr_disp "$SERVER_IP")" hy2_suffix="?sni=${SNI}&insecure=1"
     [[ -n "$HY2_DOMAIN" ]] && { hy2_server="$HY2_DOMAIN"; hy2_suffix="?sni=${HY2_DOMAIN}&insecure=1"; }
-    echo "  HY2:   hy2://${HY2_PASSWORD}@${hy2_server}:${HY2_PORT}${hy2_suffix}#${NAME}-hy2"
+    echo "  HY2 分享链接 (复制下面整行):"
+    echo "  hy2://${HY2_PASSWORD}@${hy2_server}:${HY2_PORT}${hy2_suffix}#$(urlencode "${NAME}-hy2")"
   fi
   echo "================================================================"
 }
 
+check_ports() {
+  local tool="" tcp_ok=0 udp_ok=0 ok=1
+  if command -v ss >/dev/null 2>&1; then
+    tool="ss"
+  elif command -v netstat >/dev/null 2>&1; then
+    tool="netstat"
+  else
+    log "未找到 ss/netstat，跳过端口监听检查"
+    return 1
+  fi
+  if [[ "$tool" == "ss" ]]; then
+    tcp_ok="$(ss -tln 2>/dev/null | grep -c ":$PORT " || true)"
+    [[ "$ENABLE_HY2" -eq 1 ]] && udp_ok="$(ss -uln 2>/dev/null | grep -c ":$HY2_PORT " || true)"
+  else
+    tcp_ok="$(netstat -tln 2>/dev/null | grep -c ":$PORT " || true)"
+    [[ "$ENABLE_HY2" -eq 1 ]] && udp_ok="$(netstat -uln 2>/dev/null | grep -c ":$HY2_PORT " || true)"
+  fi
+  if (( tcp_ok > 0 )); then
+    log "VLESS TCP ${PORT}: 监听正常"
+  else
+    log "警告: VLESS TCP ${PORT} 未监听，请查看日志: journalctl -u sing-box -n 50 --no-pager"
+    ok=0
+  fi
+  if [[ "$ENABLE_HY2" -eq 1 ]]; then
+    if (( udp_ok > 0 )); then
+      log "HY2 UDP ${HY2_PORT}: 监听正常"
+    else
+      log "警告: HY2 UDP ${HY2_PORT} 未监听"
+      ok=0
+    fi
+  fi
+  return $(( 1 - ok ))
+}
+
+check_sni_reachable() {
+  local code=""
+  code="$(curl -4 -sS -o /dev/null -w '%{http_code}' --max-time 8 "https://${SNI}" 2>/dev/null || true)"
+  if [[ -z "$code" || "$code" == "000" ]]; then
+    log "警告: 本机无法连通 https://${SNI}，Reality 握手可能失败（HY2 不受影响）。可在菜单 7 更换 SNI。"
+    return 1
+  fi
+  log "Reality 伪装站点 ${SNI} 可连通 (HTTP ${code})"
+}
+
+open_firewall_ports() {
+  local tcp="${PORT}/tcp" udp="" tool="" yn="n"
+  [[ "$ENABLE_HY2" -eq 1 ]] && udp="${HY2_PORT}/udp"
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+    tool="ufw"
+  elif command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld 2>/dev/null; then
+    tool="firewalld"
+  else
+    log "未检测到启用的 ufw/firewalld，请确认云控制台安全组已放行 ${tcp}${udp:+和 ${udp}}"
+    return
+  fi
+  if [[ "$OPEN_FIREWALL" -ne 1 ]]; then
+    if [[ "$MODE" == "menu" && -t 0 ]]; then
+      read -r -p "检测到 ${tool} 已启用，自动放行 ${tcp}${udp:+和 ${udp}}? [y/N] " yn
+      [[ "$yn" =~ ^[yY]$ ]] || { log "未修改防火墙，请手动放行端口。"; return; }
+    else
+      return
+    fi
+  fi
+  if [[ "$tool" == "ufw" ]]; then
+    ufw allow "$tcp" >/dev/null 2>&1
+    [[ -n "$udp" ]] && ufw allow "$udp" >/dev/null 2>&1
+  else
+    firewall-cmd --permanent --add-port="$tcp" >/dev/null 2>&1
+    [[ -n "$udp" ]] && firewall-cmd --permanent --add-port="$udp" >/dev/null 2>&1
+    firewall-cmd --reload >/dev/null 2>&1
+  fi
+  log "${tool} 已放行: ${tcp}${udp:+ / ${udp}}"
+}
+
 show_status() {
   need_singbox
+  load_info
   systemctl status sing-box --no-pager -l || true
   echo ""
   if systemctl is-enabled --quiet sing-box 2>/dev/null; then
@@ -369,6 +470,11 @@ show_status() {
   echo ""
   log "最近日志:"
   journalctl -u sing-box -n 10 --no-pager || true
+  echo ""
+  log "端口与连通性检查:"
+  check_ports || true
+  check_sni_reachable || true
+  log "当前服务器时间: $(date '+%F %T %Z')（Reality 要求客户端与服务端时间误差在 2 分钟内）"
 }
 
 autostart_toggle() {
@@ -442,6 +548,7 @@ change_sni() {
   SNI="$(ask "请输入新的 Reality 伪装 SNI" "$SNI")"
   write_config
   restart_service
+  check_sni_reachable || true
   log "SNI 已更新，新分享链接:"
   show_info
 }
@@ -506,6 +613,9 @@ install_node() {
   SERVER_IP="$(get_public_ip)"
   write_config
   setup_service
+  open_firewall_ports
+  check_ports || true
+  check_sni_reachable || true
   echo ""
   show_info
   echo ""
