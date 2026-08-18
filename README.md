@@ -8,34 +8,6 @@ After hosting the script in your own GitHub repository, run the following comman
 bash <(curl -fsSL https://raw.githubusercontent.com/coffeelb/One-click-sing-box-installer-for-VLESS-Hysteria2-on-VPS/main/sing-box.sh)
 ```
 
-Management subcommands (corresponding to the menu options):
-
-```bash
-bash <(curl -fsSL ...) info                 # Show node info and share links
-bash <(curl -fsSL ...) restart              # Restart the service
-bash <(curl -fsSL ...) status               # Show status and logs
-bash <(curl -fsSL ...) autostart on|off|status   # Configure autostart on boot
-bash <(curl -fsSL ...) update               # Update the sing-box core
-bash <(curl -fsSL ...) change-port          # Change port (interactive)
-bash <(curl -fsSL ...) change-sni           # Change SNI (interactive)
-bash <(curl -fsSL ...) uninstall            # Uninstall (requires confirmation)
-```
-
-## Firewall
-
-```bash
-# UFW
-ufw allow 8443/tcp
-ufw allow 8443/udp        # HY2 uses UDP; allow both TCP and UDP if it shares the port with VLESS
-
-# firewalld
-firewall-cmd --add-port=8443/tcp --permanent
-firewall-cmd --add-port=8443/udp --permanent
-firewall-cmd --reload
-
-# Also open the corresponding port in your cloud provider's security group
-```
-
 ## Verification & Troubleshooting
 
 ```bash
